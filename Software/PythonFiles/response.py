@@ -1,9 +1,10 @@
 from openai import OpenAI
 
-# ⚠️ Replace with your actual API key (rotate a new one if you’ve pasted it online!)
-API_KEY = ""
+with open("apikey.txt") as f:
+    API_KEY = f.read().strip()
 
 client = OpenAI(api_key=API_KEY)
+
 
 def generate_chatgpt_response(prompt: str) -> str:
     response = client.chat.completions.create(
