@@ -54,23 +54,26 @@ void loop() {
 
     int x = r.xCenter;
     int y = r.yCenter;
-    Serial.print("X: "); Serial.print(x); Serial.print("  Y: "); Serial.println(y);
+    Serial.print("Face ID: "); Serial.print(r.ID);
+    // Serial.print("  X: "); Serial.print(x);
+    // Serial.print("  Y: "); Serial.println(y);
+    // Serial.print("X: "); Serial.print(x); Serial.print("  Y: "); Serial.println(y);
     incrementer = abs(((abs(X_LEFT_MAX - x))/20)-1);
     MOVE_DELAY = (abs(X_LEFT_MAX - x));
-    Serial.print("Incrementor : ");
-    Serial.println(incrementer);
+    // Serial.print("Incrementor : ");
+    // Serial.println(incrementer);
     if (x < X_LEFT_MAX) {                 // LEFT SIDE
       angle_2 += (int)incrementer;
       clamp214(angle_2);
       SERVO_2.write(map(angle_2,0,214,0,180));
-      Serial.println("right (pan)");
+      // Serial.println("right (pan)");
       delay(MOVE_DELAY);
       nVarA = 1;
     }
     else if (x > X_LEFT_MAX && x < X_RIGHT_MIN) {           // MIDDLE COLUMN
       clamp214(angle_2);
       SERVO_2.write(map(angle_2,0,214,0,180));
-      Serial.println("right (pan)");
+      // Serial.println("right (pan)");
       delay(MOVE_DELAY);
       nVarA = 2;
     }
@@ -78,7 +81,7 @@ void loop() {
       angle_2 -= (int)incrementer;
       clamp214(angle_2);
       SERVO_2.write(map(angle_2,0,214,0,180));
-      Serial.println("right (pan)");
+      // Serial.println("right (pan)");
       delay(MOVE_DELAY);
       nVarA = 3;
     }
@@ -93,14 +96,14 @@ void loop() {
         angle_2 += (int)incrementer;
         clamp214(angle_2);
         SERVO_2.write(map(angle_2,0,214,0,180));
-        Serial.println("right (pan)");
+        // Serial.println("right (pan)");
         delay(MOVE_DELAY);
       }
       else if(nVarA == 2)
       {
         clamp214(angle_2);
         SERVO_2.write(map(angle_2,0,214,0,180));
-        Serial.println("right (pan)");
+        // Serial.println("right (pan)");
         delay(MOVE_DELAY);
       }
       else
@@ -108,7 +111,7 @@ void loop() {
         angle_2 -= (int)incrementer;
         clamp214(angle_2);
         SERVO_2.write(map(angle_2,0,214,0,180));
-        Serial.println("right (pan)");
+        // Serial.println("right (pan)");
         delay(MOVE_DELAY);
       }
   }
