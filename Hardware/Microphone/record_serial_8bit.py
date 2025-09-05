@@ -16,20 +16,23 @@ with serial.Serial(PORT, BAUD, timeout=1) as ser:
 
     frames = bytearray()
     start = time.time()
-    expected_samples = int(SAMPLE_RATE * DURATION)
-
-    while len(frames) < expected_samples:
+    while time.time() - start < DURATION:
         chunk = ser.read(ser.in_waiting or 1)
         if chunk:
             frames.extend(chunk)
 
-    frames = frames[:expected_samples]
+    # Trim or pad to expected size
+    expected_samples = int(SAMPLE_RATE * DURATION)
+    if len(frames) > expected_samples:
+        frames = frames[:expected_samples]
+    elif len(frames) < expected_samples:
+        frames.extend(b'\x80' * (expected_samples - len(frames)))  # pad silence (128)
 
-    outname = "output8bit21.wav"
+    outname = "output8bit23.wav"
     with wave.open(outname, "wb") as wf:
         wf.setnchannels(CHANNELS)
         wf.setsampwidth(SAMPWIDTH)
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(frames)
 
-print(f"Saved {outname}, samples: {expected_samples}")
+print(f"Saved {outname}, samples: {expected_samples}, captured: {len(frames)}")
