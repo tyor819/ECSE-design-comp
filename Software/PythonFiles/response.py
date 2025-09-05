@@ -1,44 +1,69 @@
+import requests
+import json
+import yaml
 import os
-from openai import OpenAI
 
-# Always resolve path relative to THIS file (response.py)
 HERE = os.path.dirname(os.path.abspath(__file__))
-KEY_PATH = os.path.join(HERE, "apikey.txt")
+CONFIG_PATH = os.path.join(HERE, "apiproxy.config")
 PROMPT_PATH = os.path.join(HERE, "prompt.txt")
 
-if not os.path.exists(KEY_PATH):
-    raise FileNotFoundError(f"Couldn't find API key file at: {KEY_PATH}")
+with open(CONFIG_PATH, "r") as f:
+    cfg = yaml.safe_load(f)
+EMAIL = cfg["email"]
+ACCESS_TOKEN = cfg["apiKey"]
 
-with open(KEY_PATH, "r") as f:
-    API_KEY = f.read().strip()
+URL = "https://us-central1-api-proxies-and-wrappers.cloudfunctions.net/proxy/openai-chat-completion"
+HEADERS = {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "Authorization": f"Bearer {ACCESS_TOKEN}",
+    "x-access-token": ACCESS_TOKEN,
+}
 
-if not API_KEY or not API_KEY.startswith("sk-"):
-    raise ValueError("OPENAI API key looks invalid. Put a real key (starting with 'sk-') in apikey.txt")
+SYS_PROMPT = ""
+if os.path.exists(PROMPT_PATH):
+    with open(PROMPT_PATH, "r") as f:
+        SYS_PROMPT = f.read()
 
-client = OpenAI(api_key=API_KEY)
+MODEL = "gpt-4.1-nano"
+CURRENT_ID = "id: 1"
 
-SYS_PROMPT = open(PROMPT_PATH, "r").read() if os.path.exists(PROMPT_PATH) else ""
-CURRENT_ID = "id: 1" # Default ID if no ID is givinen
 
 def generate_chatgpt_response(prompt: str) -> str:
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
+    payload = {
+        "messages": [
             {"role": "system", "content": SYS_PROMPT},
-            {"role": "user",   "content": f"{CURRENT_ID}\n{prompt}"},
+            {"role": "user", "content": f"{CURRENT_ID}\n{prompt}"},
         ],
-        max_tokens=100,
-        temperature=0.7,
-    )
-    return response.choices[0].message.content.strip()
+        "access_token": ACCESS_TOKEN,
+        "email": EMAIL,
+        "model": MODEL,
+        "max_tokens": 100,
+        "temperature": 0.7,
+    }
 
-def create_prompt(user_id: str):
-    global CURRENT_ID
-    CURRENT_ID = user_id
-    return CURRENT_ID
+    try:
+        resp = requests.post(URL, headers=HEADERS, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+
+        if "chat_completion" in data:
+            choices = data["chat_completion"].get("choices", [])
+            if choices:
+                return choices[0]["message"]["content"].strip()
+            else:
+                return "[empty chat_completion.choices]"
+        else:
+            return f"[unexpected response format: {json.dumps(data, indent=2)}]"
+
+    except requests.exceptions.HTTPError as e:
+        return f"[HTTP error] {e} {resp.text if 'resp' in locals() else ''}"
+    except Exception as e:
+        return f"[python error] {type(e).__name__}: {e}"
+
 
 if __name__ == "__main__":
-    create_prompt("id: 2")
+    CURRENT_ID = "id: 2"
     while True:
         user_input = input("Ask ChatGPT (or 'q' to quit): ")
         if user_input.lower() in {"q", "quit", "exit"}:
