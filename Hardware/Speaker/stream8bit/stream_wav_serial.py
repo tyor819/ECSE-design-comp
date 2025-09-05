@@ -4,7 +4,7 @@ from pydub import AudioSegment
 import serial
 
 # Step 1: Generate MP3 from text (TTS) - optional if you already have an MP3
-text = "Hello I'm Winnie the Pooh. How is your day?"  # Replace with your AI text
+text = "Hello I am Winnie the Pooh. How was your day?"  # Replace with your AI text
 tts = gTTS(text)
 tts.save("input.mp3")
 
