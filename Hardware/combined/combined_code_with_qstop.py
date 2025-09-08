@@ -22,6 +22,7 @@ TTS_MP3 = "response.mp3"
 TTS_WAV = "response.wav"
 API_KEY_FILE = "apikey_test.txt"   # Keep your API key in this file
 PROMPT_FILE = "prompt_test.txt"    # System prompt for ChatGPT
+MEMORY_FILE = "memory.txt"         # Rolling memory file
 # ----------------------------------------
 
 # Set stdin to cbreak mode for single-character input without Enter
@@ -96,16 +97,30 @@ def transcribe_audio(wav_file):
             return None
 
 def query_chatgpt(user_text):
-    """Send user text to ChatGPT and return response."""
+    """Send user text to ChatGPT with memory context and return response."""
+    # Load memory so far
+    with open(MEMORY_FILE, "r") as f:
+        memory_content = f.read().strip()
+
+    # Build conversation context
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if memory_content:
+        messages.append({"role": "system", "content": f"Conversation so far:\n{memory_content}"})
+    messages.append({"role": "user", "content": user_text})
+
+    # Query model
     response = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_text}
-        ],
+        messages=messages,
     )
     reply = response.choices[0].message.content.strip()
     print("ChatGPT says:", reply)
+
+    # Append new exchange to memory
+    with open(MEMORY_FILE, "a") as f:
+        f.write(f"User: {user_text}\n")
+        f.write(f"Winnie: {reply}\n")
+
     return reply
 
 def synthesize_speech(text):
@@ -140,6 +155,8 @@ def play_audio(raw_bytes):
 
 # ---------------- MAIN LOOP ----------------
 if __name__ == "__main__":
+    # Clear memory at start of each run
+    open(MEMORY_FILE, "w").close()
     try:
         while True:
             if is_key_pressed():
