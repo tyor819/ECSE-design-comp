@@ -1,0 +1,19 @@
+----------------------------------------------------------------------------------------------------------------------------------
+NCDrill File Report For: ECSE_Comp.PcbDoc   4/09/2025  11:24:04 pm
+----------------------------------------------------------------------------------------------------------------------------------
+
+Layer Pair : Top Layer to Bottom Layer
+ASCII RoundHoles File : ECSE_Comp.TXT
+EIA File   : ECSE_Comp.DRL
+
+Tool       Hole Size               Hole Tolerance               Hole Type       Hole Count   Plated         Tool Travel
+----------------------------------------------------------------------------------------------------------------------------------
+T1      28mil (0.701mm)                                           Round             6         PTH        2.57inch (65.32mm)
+T2      32mil (0.8mm)                                             Round             2         PTH        0.20inch (5.00mm)
+T3      35mil (0.899mm)                                           Round             31        PTH        5.78inch (146.79mm)
+T4      39mil (1.001mm)                                           Round             30        PTH        3.36inch (85.22mm)
+T5      126mil (3.2mm)                                            Round             4         PTH        4.92inch (125.00mm)
+----------------------------------------------------------------------------------------------------------------------------------
+Totals                                                                              73
+
+Total Processing Time (hh:mm:ss) : 00:00:00

@@ -1,0 +1,16 @@
+Change Net Name : Old Net Name=BUTT1out New Net Name=BUTT1
+Change Net Name : Old Net Name=BUTT2out New Net Name=BUTT2
+Change Net Name : Old Net Name=BUTT3out New Net Name=BUTT3
+Change Net Name : Old Net Name=LED1in New Net Name=LED1
+Change Net Name : Old Net Name=LED2in New Net Name=LED2
+Change Net Name : Old Net Name=SERVO1in New Net Name=SERVO1
+Change Net Name : Old Net Name=SERVO2in New Net Name=SERVO2
+Change Net Name : Old Net Name=SERVO3in New Net Name=SERVO3
+Added Rule: Name=Schematic Supply Nets_2
+Added Rule: Name=Schematic Supply Nets_4
+Added Rule: Name=Schematic Supply Nets_18
+Added Rule: Name=Schematic Supply Nets_19
+Added Rule: Name=Schematic Supply Nets_20
+Added Rule: Name=Schematic Supply Nets_21
+Added Rule: Name=Schematic Supply Nets_22
+Added Rule: Name=Schematic Supply Nets_23

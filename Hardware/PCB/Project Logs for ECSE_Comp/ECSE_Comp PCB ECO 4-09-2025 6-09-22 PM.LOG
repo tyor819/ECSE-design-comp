@@ -1,0 +1,7 @@
+Added Component: Designator=U?(PCBComponent_1)
+Added Pin To Net: NetName=GND Pin=U?-4
+Added Pin To Net: NetName=LED1in Pin=U?-5
+Added Pin To Net: NetName=LED2in Pin=U?-6
+Added Pin To Net: NetName=MICfilt Pin=U?-19
+Added Pin To Net: NetName=GND Pin=U?-29
+Added Member To Class: ClassName=ECSE_Comp Member=Component U? Arduino Nano

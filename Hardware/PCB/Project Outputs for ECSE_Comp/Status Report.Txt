@@ -1,0 +1,13 @@
+Output: NC Drill Files
+Type  : NC Drill
+From  : Project [ECSE_Comp.PrjPcb]
+   Generated File[ECSE_Comp.TXT]
+   Generated File[ECSE_Comp.DRL]
+   Generated File[ECSE_Comp.LDP]
+   Generated File[ECSE_Comp.DRR]
+
+
+Files Generated   : 4
+Documents Printed : 0
+
+Finished Output Generation At 11:24:04 pm On 4/09/2025
