@@ -5,10 +5,12 @@ import speech_recognition as sr
 from gtts import gTTS
 from pydub import AudioSegment
 from openai import OpenAI
+import json
+from pathlib import Path
 
 # ---------------- CONFIG ----------------
-MIC_PORT = "/dev/cu.usbserial-110"   # Arduino mic port
-SPK_PORT = "/dev/cu.usbserial-110"   # Arduino speaker port (same Arduino if combined)
+MIC_PORT = "/dev/cu.usbmodem101"   # Arduino mic port
+SPK_PORT = "/dev/cu.usbmodem101"   # Arduino speaker port (same Arduino if combined)
 BAUDRATE = 115200
 SAMPLE_RATE = 8000
 CHANNELS = 1
@@ -18,6 +20,8 @@ TTS_MP3 = "response.mp3"
 TTS_WAV = "response.wav"
 API_KEY_FILE = "apikey_test.txt"   # Keep your API key in this file
 PROMPT_FILE = "prompt_test.txt"    # System prompt for ChatGPT
+CURRENT_ID = "id: 0"
+PRESENCE_PATH = Path(__file__).resolve().parents[1] / "presence.json"
 # ----------------------------------------
 
 # Load API key and client
@@ -27,6 +31,16 @@ client = OpenAI(api_key=api_key)
 
 with open(PROMPT_FILE, "r") as f:
     SYSTEM_PROMPT = f.read().strip()
+
+def get_current_id_str() -> str:
+    """Return 'id: X' using presence.json (defaults to 0 if missing)."""
+    try:
+        with open(PRESENCE_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        cid = int(data.get("current_id", 0))
+    except Exception:
+        cid = 0
+    return f"id: {cid}"
 
 def record_audio():
     """Record audio from Arduino mic until button released."""
@@ -58,7 +72,7 @@ def record_audio():
     return RECORD_WAV
 
 
-def transcribe_audio(wav_file):
+def transcribe_audio(wav_file) -> str:
     """Convert WAV speech to text."""
     recognizer = sr.Recognizer()
     with sr.AudioFile(wav_file) as source:
@@ -75,13 +89,13 @@ def transcribe_audio(wav_file):
             return None
 
 
-def query_chatgpt(user_text):
+def query_chatgpt(user_text, CURRENT_ID):
     """Send user text to ChatGPT and return response."""
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_text}
+            {"role": "user", "content": f"{CURRENT_ID}\n{user_text}"}
         ],
     )
     reply = response.choices[0].message.content.strip()
@@ -124,6 +138,8 @@ if __name__ == "__main__":
         user_text = transcribe_audio(wav_file)
         if not user_text:
             continue
-        reply = query_chatgpt(user_text)
+        current_id_str = get_current_id_str()
+
+        reply = query_chatgpt(user_text, current_id_str)
         audio_bytes = synthesize_speech(reply)
         play_audio(audio_bytes)
