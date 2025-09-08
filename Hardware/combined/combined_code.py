@@ -7,8 +7,8 @@ from pydub import AudioSegment
 from openai import OpenAI
 
 # ---------------- CONFIG ----------------
-MIC_PORT = "/dev/cu.usbmodem101"   # Arduino mic port
-SPK_PORT = "/dev/cu.usbmodem101"   # Arduino speaker port (same Arduino if combined)
+MIC_PORT = "/dev/cu.usbserial-110"   # Arduino mic port
+SPK_PORT = "/dev/cu.usbserial-110"   # Arduino speaker port (same Arduino if combined)
 BAUDRATE = 115200
 SAMPLE_RATE = 8000
 CHANNELS = 1
