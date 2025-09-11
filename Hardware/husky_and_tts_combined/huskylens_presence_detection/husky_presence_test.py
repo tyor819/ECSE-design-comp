@@ -1,3 +1,4 @@
+
 import serial
 import re
 from pathlib import Path
@@ -9,7 +10,7 @@ import tempfile
 PORT = "/dev/cu.usbserial-10"  # Change to your Arduino/HuskyLens port
 BAUD = 115200
 DB_PATH = Path("faces.json")   # File mapping IDs -> names
-CHECK_INTERVAL = 10.0          # Seconds between checks
+CHECK_INTERVAL = 0.2          # Seconds between checks
 # ----------------------------------------
 
 # Save presence.json in Downloads/combined
@@ -121,3 +122,4 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\nExiting.")
+

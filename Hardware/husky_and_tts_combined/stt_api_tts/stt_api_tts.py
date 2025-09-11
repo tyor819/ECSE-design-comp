@@ -13,8 +13,8 @@ from pathlib import Path
 import json
 
 # ---------------- CONFIG ----------------
-MIC_PORT = "/dev/cu.usbmodem11101"   # Arduino mic port
-SPK_PORT = "/dev/cu.usbmodem11101"   # Arduino speaker port
+MIC_PORT = "/dev/cu.usbserial-1110"   # Arduino mic port
+SPK_PORT = "/dev/cu.usbserial-1110"   # Arduino speaker port
 BAUDRATE = 115200
 SAMPLE_RATE = 8000
 CHANNELS = 1

@@ -2,7 +2,7 @@
 
 // ---------------- CONFIG ----------------
 #define MIC_PIN A0
-#define BUTTON_PIN 2     // Active LOW button in paw
+#define BUTTON_PIN 11     // Active LOW button in paw
 #define SPEAKER_PIN 9    // PWM audio output pin
 #define BUFFER_SIZE 512
 // ----------------------------------------

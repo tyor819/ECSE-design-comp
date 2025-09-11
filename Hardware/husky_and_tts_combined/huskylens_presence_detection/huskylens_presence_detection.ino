@@ -3,9 +3,14 @@
 #include "HUSKYLENS.h"
 
 HUSKYLENS huskylens;
-Servo SERVO_1;
 Servo SERVO_2;
+Servo SERVO_RIGHT;
+Servo SERVO_LEFT;
 
+#define BUTTON_LEFT   4
+#define BUTTON_RIGHT  7
+
+bool bHold = false;
 // --- motion tuning ---
 float incrementer = 1;
 int MOVE_DELAY = 10;
@@ -32,10 +37,11 @@ void setup() {
     Serial.println("HUSKYLENS not found (I2C)."); while (1);
   }
   Serial.println("I2C ready. Face rec running on device.");
-
-  SERVO_1.attach(2);
-  SERVO_2.attach(3);
-  SERVO_1.write(map(angle_1,0,214,0,180));
+  pinMode(BUTTON_LEFT,INPUT);
+  pinMode(BUTTON_RIGHT,INPUT);
+  SERVO_2.attach(11);
+  SERVO_RIGHT.attach(9);
+  SERVO_LEFT.attach(8);
   SERVO_2.write(map(angle_2,0,214,0,180));
 }
 
@@ -45,7 +51,45 @@ void loop() {
     delay(30); 
     return; 
   }
+  if(digitalRead(BUTTON_RIGHT) == false)
+  {
+    bHold = true;
+  }
+  if((digitalRead(BUTTON_RIGHT) == true) && (bHold == true))
+  {
+    for (int i = 0; i < 2; i++) {   // runs twice (90→45, 90→45)
+      SERVO_RIGHT.write(90);
+      delay(200);
+      SERVO_RIGHT.write(45);
+      delay(200);
+    }
+    bHold = false;
+  }
+  else
+  {
+    SERVO_RIGHT.write(45);
+  }
+  if(digitalRead(BUTTON_LEFT) == false)
+  {
+    bHold = true;
+  }
+  if((digitalRead(BUTTON_LEFT) == false) && (bHold == true))
+  {
+    for (int i = 0; i < 2; i++) {   // runs twice (90→45, 90→45)
+      SERVO_LEFT.write(135);
+      delay(200);
+      SERVO_LEFT.write(90);
+      delay(200);
+    }
+    bHold = false;
+  }
+  else
+  {
+    SERVO_LEFT.write(135);
+  }
+  
 
+  
 
   while (huskylens.available()) {
     timer = 0;
