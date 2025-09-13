@@ -206,8 +206,14 @@ if __name__ == "__main__":
 
             memory_file = get_memory_file(fid)
             name, degree = parse_metadata(memory_file)
+
+            # ✅ New check for empty name or degree
+            if not name or not degree:
+                print(f"⚠️ Cannot start conversation: Name or degree fields are empty for ID {fid}.")
+                continue
+
             conv = get_conversation(memory_file)
-            print(f"Talking to {name or 'Unknown'} ({degree or 'Unknown degree'})")
+            print(f"Talking to {name} ({degree})")
 
             reply = query_chatgpt(user_text, name, degree, conv)
             append_to_memory(fid, user_text, reply)
