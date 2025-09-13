@@ -7,27 +7,28 @@ Servo SERVO_2;
 Servo SERVO_RIGHT;
 Servo SERVO_LEFT;
 
-#define BUTTON_LEFT   4
-#define BUTTON_RIGHT  7
+#define BUTTON_LEFT 4
+#define BUTTON_RIGHT 7
 
 bool bHold = false;
+
 // --- motion tuning ---
 float incrementer = 1;
 int MOVE_DELAY = 10;
 
 int angle_1 = 107; // tilt (up/down)
-int angle_2 = 107; // pan  (left/right)
+int angle_2 = 107; // pan (left/right)
 
 // --- ranges (adjust these as needed) ---
-int X_LEFT_MAX   = 130;
-int X_RIGHT_MIN  = 150;
+int X_LEFT_MAX = 130;
+int X_RIGHT_MIN = 150;
 
 int nVarA = 2;
 int timer = 0;
 
 // clamp helper to keep angles in 0..214 before mapping
-inline void clamp214(int &a) { 
-  if (a < 0) a = 0; if (a > 214) a = 214; 
+inline void clamp214(int &a) {
+  if (a < 0) a = 0; if (a > 214) a = 214;
 }
 
 void setup() {
@@ -46,36 +47,56 @@ void setup() {
 }
 
 void loop() {
-  int lastDetectedID = 0;  
+  // New: Check for serial commands (e.g., "WAVE")
+  if (Serial.available() > 0) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+    if (command == "WAVE") {
+      // Trigger waving sequence for both arms
+      for (int i = 0; i < 2; i++) {  // Wave right arm
+        SERVO_RIGHT.write(90);
+        delay(200);
+        SERVO_RIGHT.write(45);
+        delay(200);
+      }
+      for (int i = 0; i < 2; i++) {  // Wave left arm
+        SERVO_LEFT.write(90);
+        delay(200);
+        SERVO_LEFT.write(135);
+        delay(200);
+      }
+      SERVO_RIGHT.write(45);  // Reset right
+      SERVO_LEFT.write(135);  // Reset left
+      Serial.println("Waving completed.");  // Optional feedback
+    }
+  }
 
   // off-frame → no motion
-  if (!huskylens.request()) { 
-    delay(30); 
-    return; 
+  if (!huskylens.request()) {
+    delay(30);
+    return;
   }
+
   if (digitalRead(BUTTON_RIGHT) == false) {
     bHold = true;
   }
   if ((digitalRead(BUTTON_RIGHT) == true) && (bHold == true)) {
-    for (int i = 0; i < 2; i++) {   // runs twice (90→45, 90→45)
+    for (int i = 0; i < 2; i++) {  // runs twice (90→45, 90→45)
       SERVO_RIGHT.write(90);
       delay(200);
       SERVO_RIGHT.write(45);
       delay(200);
     }
-    Serial.print("Face ID: "); Serial.println(lastDetectedID);
-    if (lastDetectedID > 0) {
-      Serial.println("RIGHT_RELEASED_FACE_DETECTED");
-    }
     bHold = false;
   } else {
     SERVO_RIGHT.write(45);
   }
+
   if (digitalRead(BUTTON_LEFT) == false) {
     bHold = true;
   }
   if ((digitalRead(BUTTON_LEFT) == false) && (bHold == true)) {
-    for (int i = 0; i < 2; i++) {   // runs twice (90→45, 90→45)
+    for (int i = 0; i < 2; i++) {  // runs twice (90→45, 90→45)
       SERVO_LEFT.write(135);
       delay(200);
       SERVO_LEFT.write(90);
@@ -90,28 +111,35 @@ void loop() {
     timer = 0;
     HUSKYLENSResult r = huskylens.read();
     if (r.command != COMMAND_RETURN_BLOCK || r.ID <= 0) continue;
-    lastDetectedID = r.ID;
 
     int x = r.xCenter;
     int y = r.yCenter;
     Serial.print("Face ID: "); Serial.print(r.ID);
+    // Serial.print(" X: "); Serial.print(x);
+    // Serial.print(" Y: "); Serial.println(y);
+    // Serial.print("X: "); Serial.print(x); Serial.print(" Y: "); Serial.println(y);
     incrementer = abs(((abs(X_LEFT_MAX - x)) / 20) - 1);
-    MOVE_DELAY = abs(X_LEFT_MAX - x);
-    if (x < X_LEFT_MAX) {                 // LEFT SIDE
+    MOVE_DELAY = (abs(X_LEFT_MAX - x));
+    // Serial.print("Incrementor : ");
+    // Serial.println(incrementer);
+    if (x < X_LEFT_MAX) {  // LEFT SIDE
       angle_2 += (int)incrementer;
       clamp214(angle_2);
       SERVO_2.write(map(angle_2, 0, 214, 0, 180));
+      // Serial.println("right (pan)");
       delay(MOVE_DELAY);
       nVarA = 1;
-    } else if (x > X_LEFT_MAX && x < X_RIGHT_MIN) { // MIDDLE COLUMN
+    } else if (x > X_LEFT_MAX && x < X_RIGHT_MIN) {  // MIDDLE COLUMN
       clamp214(angle_2);
       SERVO_2.write(map(angle_2, 0, 214, 0, 180));
+      // Serial.println("right (pan)");
       delay(MOVE_DELAY);
       nVarA = 2;
-    } else if (x > X_LEFT_MAX) {                    // RIGHT SIDE
+    } else if (x > X_LEFT_MAX) {  // RIGHT SIDE
       angle_2 -= (int)incrementer;
       clamp214(angle_2);
       SERVO_2.write(map(angle_2, 0, 214, 0, 180));
+      // Serial.println("right (pan)");
       delay(MOVE_DELAY);
       nVarA = 3;
     }
@@ -122,15 +150,18 @@ void loop() {
       angle_2 += (int)incrementer;
       clamp214(angle_2);
       SERVO_2.write(map(angle_2, 0, 214, 0, 180));
+      // Serial.println("right (pan)");
       delay(MOVE_DELAY);
     } else if (nVarA == 2) {
       clamp214(angle_2);
       SERVO_2.write(map(angle_2, 0, 214, 0, 180));
+      // Serial.println("right (pan)");
       delay(MOVE_DELAY);
     } else {
       angle_2 -= (int)incrementer;
       clamp214(angle_2);
       SERVO_2.write(map(angle_2, 0, 214, 0, 180));
+      // Serial.println("right (pan)");
       delay(MOVE_DELAY);
     }
   } else {

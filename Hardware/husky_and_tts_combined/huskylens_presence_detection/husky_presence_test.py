@@ -4,14 +4,13 @@ from pathlib import Path
 import json
 import time
 import tempfile
-from datetime import datetime
 
 # ---------------- CONFIG ----------------
-PORT = "/dev/cu.usbserial-10"  # Change to your Arduino/HuskyLens port
+PORT = "/dev/cu.usbserial-10"  # Arduino/HuskyLens port
 BAUD = 115200
-DB_PATH = Path("faces.json")   # File mapping IDs -> names
-CHECK_INTERVAL = 0.2           # Seconds between checks
-EVENT_JSON = Path("event.json")  # File for button press events
+DB_PATH = Path("faces.json")  # File mapping IDs -> names
+CHECK_INTERVAL = 0.1  # Seconds between checks
+WAVING_FLAG_FILE = Path("waving_flag.txt")  # New: Flag for waving
 # ----------------------------------------
 
 # Save presence.json in Downloads/combined
@@ -32,13 +31,12 @@ if DB_PATH.exists():
 else:
     people = {}  # empty dict if no file
 
-# Regex patterns to extract face IDs and button events
+# Regex patterns to extract face IDs
 id_patterns = [
     re.compile(r"^DATA\s*,\s*(\d+)\s*,", re.IGNORECASE),
     re.compile(r"Face\s*ID\s*:\s*(\d+)", re.IGNORECASE),
     re.compile(r"ID\s*=\s*(\d+)", re.IGNORECASE),
 ]
-button_pattern = re.compile(r"RIGHT_PRESSED_FACE_DETECTED", re.IGNORECASE)
 
 def extract_face_id(text: str):
     for pat in id_patterns:
@@ -52,22 +50,13 @@ def atomic_write_json(path: Path, obj: dict):
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name, suffix=".tmp")
     try:
         with open(fd, "w", encoding="utf-8") as f:
-            json.dump(obj, f, ensure_ascii=False, indent=4)
+            json.dump(obj, f, ensure_ascii=False)
         Path(tmp).replace(path)
     finally:
         try:
             Path(tmp).unlink()
         except FileNotFoundError:
             pass
-
-def write_event_to_json(event_type: str):
-    """Write button press event to event.json."""
-    event_data = {
-        'event': event_type,
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    }
-    atomic_write_json(EVENT_JSON, event_data)
-    print(f"Event written to {EVENT_JSON}: {event_data}")
 
 def clear_memory():
     """Clear memory.txt."""
@@ -110,49 +99,43 @@ def load_person_memory_to_current(fid: int):
 # ---------------- MAIN LOOP ----------------
 def main():
     print(f"Listening on {PORT} @ {BAUD}... (checking every {CHECK_INTERVAL}s)")
-    with serial.Serial(PORT, BAUD, timeout=0.1) as ser:
+    with serial.Serial(PORT, BAUD, timeout=0.05) as ser:
         buffer = ""
-
         while True:
             start_time = time.monotonic()
-
             # Read all available data for this interval
             while time.monotonic() - start_time < CHECK_INTERVAL:
                 data = ser.read(ser.in_waiting or 1)
                 if data:
                     buffer += data.decode("utf-8", errors="replace")
-                time.sleep(0.05)  # small delay to avoid 100% CPU
+                time.sleep(0.01)  # Small delay to avoid 100% CPU
+
+            # New: Check waving flag and send command if true
+            if WAVING_FLAG_FILE.exists():
+                flag = WAVING_FLAG_FILE.read_text().strip()
+                if flag == "true":
+                    ser.write(b"WAVE\n")  # Send WAVE command to Arduino
+                    print("Sent WAVE command to head Arduino.")
+                    WAVING_FLAG_FILE.write_text("false")  # Reset flag
 
             # After interval: process buffer once
-            processed_up_to = 0
-            # Check for button press event
-            button_match = button_pattern.search(buffer)
-            if button_match:
-                write_event_to_json("RightButtonPressedFaceDetected")
-                print("Right button pressed and face detected! Written to event.json.")
-                processed_up_to = max(processed_up_to, button_match.end())
-
-            # Check for face ID matches
             matches = re.finditer(r"Face\s*ID\s*:\s*(\d+)", buffer, re.IGNORECASE)
+            processed_up_to = 0
             for m in matches:
                 fid = int(m.group(1))
                 key = str(fid)
                 name = people.get(key, {}).get("name", f"Unknown (ID {fid})")
                 print(f"Detected: {name} (ID {fid})")
-
                 # ---------------- Check current presence ----------------
                 current_presence = load_presence()
                 current_id = current_presence.get("current_id")
                 current_name = current_presence.get("human_name")
-
                 if current_id != fid or current_name != name:
                     # save current memory to the previous ID before switching
                     if current_id is not None:
                         save_current_memory_to_person(current_id)
-
                     # load previous memory of the new person into memory.txt
                     load_person_memory_to_current(fid)
-
                     # update presence.json
                     payload = {
                         "current_id": fid,
@@ -160,9 +143,7 @@ def main():
                         "human_name": name
                     }
                     atomic_write_json(PRESENCE_PATH, payload)
-
-                processed_up_to = max(processed_up_to, m.end())
-
+                processed_up_to = m.end()
             # Remove processed part from buffer
             buffer = buffer[processed_up_to:]
 
