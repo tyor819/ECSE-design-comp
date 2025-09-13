@@ -13,8 +13,8 @@ from pathlib import Path
 import json
 
 # ---------------- CONFIG ----------------
-MIC_PORT = "/dev/cu.usbserial-1110"  # Arduino mic port
-SPK_PORT = "/dev/cu.usbserial-1110"  # Arduino speaker port
+MIC_PORT = "/dev/cu.usbserial-1110"
+SPK_PORT = "/dev/cu.usbserial-1110"
 BAUDRATE = 115200
 SAMPLE_RATE = 8000
 CHANNELS = 1
@@ -22,15 +22,14 @@ SAMPLE_WIDTH = 1
 RECORD_WAV = "recorded.wav"
 TTS_MP3 = "response.mp3"
 TTS_WAV = "response.wav"
-API_KEY_FILE = "apikey_test.txt"  # Keep your API key in this file
-PROMPT_FILE = "prompt_test.txt"  # System prompt for ChatGPT
-MEMORY_FILE = "memory.txt"  # Rolling memory file
-PRESENCE_FILE = Path.home() / "Downloads/combined/presence.json"  # Presence file from HuskyLens
-LAST_SPEAKER_FILE = Path("last_speaker.txt")  # Track last speaker
-WAVING_FLAG_FILE = Path("waving_flag.txt")  # New: Flag for waving during speech
+API_KEY_FILE = "apikey_test.txt"
+PROMPT_FILE = "prompt_test.txt"
+PRESENCE_FILE = Path.home() / "Downloads/combined/presence.json"
+MEMORIES_DIR = Path("memories")
+WAVING_FLAG_FILE = Path("waving_flag.txt")
 # ----------------------------------------
 
-# Set stdin to cbreak mode for single-character input without Enter
+# Terminal setup for non-blocking input
 old_settings = termios.tcgetattr(sys.stdin)
 tty.setcbreak(sys.stdin.fileno())
 
@@ -51,7 +50,7 @@ with open(PROMPT_FILE, "r") as f:
 # ---------------- AUDIO ----------------
 def record_audio():
     ser = serial.Serial(MIC_PORT, BAUDRATE, timeout=1)
-    time.sleep(2)  # Wait for Arduino reset
+    time.sleep(2)
     print("Hold button to record... release to stop.")
     data = b''
     last_data_time = time.time()
@@ -64,7 +63,7 @@ def record_audio():
         try:
             chunk = ser.read(ser.in_waiting or 1)
         except serial.SerialException as e:
-            print("⚠️ Serial glitch, continuing:", e)
+            print("⚠️ Serial glitch:", e)
             chunk = b""
         if chunk:
             data += chunk
@@ -96,49 +95,44 @@ def transcribe_audio(wav_file):
             print("STT request error:", e)
             return None
 
-# ---------------- CHATGPT ----------------
-def query_chatgpt(user_text):
-    # Load memory
-    with open(MEMORY_FILE, "r") as f:
-        memory_content = f.read().strip()
-    # Load presence info
-    presence_name = None
+# ---------------- PRESENCE / MEMORY ----------------
+def get_current_presence():
     if PRESENCE_FILE.exists():
         try:
             with open(PRESENCE_FILE, "r") as f:
-                presence_data = json.load(f)
-                presence_name = presence_data.get("human_name")
+                data = json.load(f)
+                return data.get("current_id"), data.get("human_name")
         except Exception as e:
             print("⚠️ Could not read presence.json:", e)
-    # ---------------- Clear memory if speaker changed ----------------
-    if presence_name:
-        last_speaker_name = None
-        if LAST_SPEAKER_FILE.exists():
-            with open(LAST_SPEAKER_FILE, "r") as f:
-                last_speaker_name = f.read().strip()
-        if last_speaker_name != presence_name:
-            open(MEMORY_FILE, "w").close()  # Clear memory
-            with open(LAST_SPEAKER_FILE, "w") as f:
-                f.write(presence_name)
-            print(f"🧹 Memory cleared. New speaker: {presence_name}")
-    # Build conversation context
+    return None, None
+
+def get_memory_file(fid):
+    return MEMORIES_DIR / f"ID_{fid}.txt"
+
+def append_to_memory(fid, user_text, winnie_text):
+    mem_file = get_memory_file(fid)
+    with open(mem_file, "a", encoding="utf-8") as f:
+        f.write(f"User: {user_text}\n")
+        f.write(f"Winnie: {winnie_text}\n")
+
+# ---------------- CHATGPT ----------------
+def query_chatgpt(user_text, memory_file):
+    # Read previous conversation
+    memory_content = ""
+    if memory_file.exists():
+        memory_content = memory_file.read_text(encoding="utf-8").strip()
+
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if memory_content:
         messages.append({"role": "system", "content": f"Conversation so far:\n{memory_content}"})
-    if presence_name:
-        messages.append({"role": "system", "content": f"The person in front of you is {presence_name}. Address them by name if appropriate."})
     messages.append({"role": "user", "content": user_text})
-    # Query model
+
     response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=messages,
     )
     reply = response.choices[0].message.content.strip()
     print("ChatGPT says:", reply)
-    # Append new exchange to memory
-    with open(MEMORY_FILE, "a") as f:
-        f.write(f"User: {user_text}\n")
-        f.write(f"Winnie: {reply}\n")
     return reply
 
 # ---------------- TTS ----------------
@@ -149,16 +143,13 @@ def synthesize_speech(text):
     audio = audio.set_frame_rate(8000).set_channels(1).set_sample_width(1)
     audio.export(TTS_WAV, format="wav")
     with open(TTS_WAV, "rb") as f:
-        f.seek(44)  # skip WAV header
+        f.seek(44)
         data = f.read()
     return data
 
 def play_audio(raw_bytes):
-    # New: Set waving flag to true before playback
     with open(WAVING_FLAG_FILE, "w") as f:
         f.write("true")
-    print("Set waving flag to true.")
-
     ser = serial.Serial(SPK_PORT, BAUDRATE, timeout=1)
     time.sleep(2)
     print(f"Sending {len(raw_bytes)} bytes to speaker...")
@@ -171,16 +162,11 @@ def play_audio(raw_bytes):
         ser.write(raw_bytes[i:i+256])
         time.sleep(0.01)
     ser.close()
-    print("Playback finished.")
-
-    # New: Set waving flag to false after playback
     with open(WAVING_FLAG_FILE, "w") as f:
         f.write("false")
-    print("Set waving flag to false.")
 
 # ---------------- MAIN LOOP ----------------
 if __name__ == "__main__":
-    open(MEMORY_FILE, "w").close()  # Clear memory at start
     try:
         while True:
             if is_key_pressed():
@@ -194,7 +180,13 @@ if __name__ == "__main__":
             user_text = transcribe_audio(wav_file)
             if not user_text:
                 continue
-            reply = query_chatgpt(user_text)
+            fid, name = get_current_presence()
+            if fid is None:
+                print("No registered person detected; skipping.")
+                continue
+            memory_file = get_memory_file(fid)
+            reply = query_chatgpt(user_text, memory_file)
+            append_to_memory(fid, user_text, reply)
             audio_bytes = synthesize_speech(reply)
             play_audio(audio_bytes)
     except KeyboardInterrupt:
