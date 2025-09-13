@@ -1,4 +1,3 @@
-
 import serial
 import re
 from pathlib import Path
@@ -10,7 +9,7 @@ import tempfile
 PORT = "/dev/cu.usbserial-10"  # Change to your Arduino/HuskyLens port
 BAUD = 115200
 DB_PATH = Path("faces.json")   # File mapping IDs -> names
-CHECK_INTERVAL = 0.2          # Seconds between checks
+CHECK_INTERVAL = 0.2           # Seconds between checks
 # ----------------------------------------
 
 # Save presence.json in Downloads/combined
@@ -19,6 +18,10 @@ PRESENCE_FOLDER = DOWNLOADS / "combined"
 PRESENCE_FOLDER.mkdir(parents=True, exist_ok=True)
 PRESENCE_PATH = PRESENCE_FOLDER / "presence.json"
 MEMORY_FILE = Path("memory.txt")
+
+# Per-person memory folder
+MEMORIES_DIR = Path("memories")
+MEMORIES_DIR.mkdir(exist_ok=True)
 
 # Load face database
 if DB_PATH.exists():
@@ -72,6 +75,26 @@ def load_presence():
             return {}
     return {}
 
+def save_current_memory_to_person(fid: int):
+    """Append the current memory.txt content into that person's memory file."""
+    mem_text = MEMORY_FILE.read_text(encoding="utf-8") if MEMORY_FILE.exists() else ""
+    if mem_text.strip():
+        person_file = MEMORIES_DIR / f"ID_{fid}.txt"
+        with open(person_file, "a", encoding="utf-8") as f:
+            f.write(mem_text + "\n")
+        print(f"Saved memory.txt contents to {person_file}")
+
+def load_person_memory_to_current(fid: int):
+    """Load that person's stored memory into memory.txt."""
+    person_file = MEMORIES_DIR / f"ID_{fid}.txt"
+    if person_file.exists():
+        past = person_file.read_text(encoding="utf-8")
+        MEMORY_FILE.write_text(past)
+        print(f"Loaded previous memory for ID {fid} into memory.txt")
+    else:
+        MEMORY_FILE.write_text("")  # start fresh
+        print(f"No previous memory for ID {fid}, starting fresh.")
+
 # ---------------- MAIN LOOP ----------------
 def main():
     print(f"Listening on {PORT} @ {BAUD}... (checking every {CHECK_INTERVAL}s)")
@@ -103,14 +126,20 @@ def main():
                 current_name = current_presence.get("human_name")
 
                 if current_id != fid or current_name != name:
-                    # Only update and clear memory if different
+                    # save current memory to the previous ID before switching
+                    if current_id is not None:
+                        save_current_memory_to_person(current_id)
+
+                    # load previous memory of the new person into memory.txt
+                    load_person_memory_to_current(fid)
+
+                    # update presence.json
                     payload = {
                         "current_id": fid,
                         "timestamp_monotonic": time.monotonic(),
                         "human_name": name
                     }
                     atomic_write_json(PRESENCE_PATH, payload)
-                    clear_memory()
 
                 processed_up_to = m.end()
 
@@ -122,4 +151,3 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\nExiting.")
-
