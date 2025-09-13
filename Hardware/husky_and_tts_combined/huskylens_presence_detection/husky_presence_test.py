@@ -85,7 +85,8 @@ def main():
                 if not person_file.exists():
                     with open(person_file, "w", encoding="utf-8") as f:
                         f.write("name: \n")
-                        f.write("degree: \n\n")
+                        f.write("degree: \n")
+                        f.write("count = -1\n\n")  # <-- Added line for count
                         f.write("--- Conversation Log ---\n")
                     print(f"Created new memory file: {person_file} (please edit name/degree manually)")
 
