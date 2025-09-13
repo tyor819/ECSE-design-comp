@@ -106,24 +106,50 @@ def get_memory_file(fid):
     return MEMORIES_DIR / f"ID_{fid}.txt"
 
 def parse_metadata(mem_file):
-    """Read name and degree from the top of ID_x.txt"""
+    """Read name, degree, and count from the top of ID_x.txt"""
     name, degree = None, None
+    count = -1
     if mem_file.exists():
         with open(mem_file, "r", encoding="utf-8") as f:
             for line in f:
-                if line.lower().startswith("name:"):
+                line_lower = line.lower()
+                if line_lower.startswith("name:"):
                     name = line.split(":", 1)[1].strip()
-                elif line.lower().startswith("degree:"):
+                elif line_lower.startswith("degree:"):
                     degree = line.split(":", 1)[1].strip()
-                if name and degree:
-                    break
-    return name, degree
+                elif line_lower.startswith("count"):
+                    try:
+                        count = int(line.split("=",1)[1].strip())
+                    except:
+                        count = -1
+    return name, degree, count
+
+def update_count(mem_file, new_count):
+    """Update the count variable in ID file."""
+    if not mem_file.exists():
+        return
+    lines = mem_file.read_text(encoding="utf-8").splitlines()
+    new_lines = []
+    count_updated = False
+    for line in lines:
+        if line.lower().startswith("count"):
+            new_lines.append(f"count = {new_count}")
+            count_updated = True
+        else:
+            new_lines.append(line)
+    if not count_updated:
+        # Append count at top if missing
+        for i, line in enumerate(new_lines):
+            if line.lower().startswith("degree:"):
+                new_lines.insert(i+1, f"count = {new_count}")
+                break
+    mem_file.write_text("\n".join(new_lines), encoding="utf-8")
 
 def get_conversation(mem_file):
     """Read conversation part (skip metadata)."""
     if mem_file.exists():
         lines = mem_file.read_text(encoding="utf-8").splitlines()
-        conv_lines = [l for l in lines if not l.lower().startswith(("name:", "degree:"))]
+        conv_lines = [l for l in lines if not l.lower().startswith(("name:", "degree:", "count"))]
         return "\n".join(conv_lines)
     return ""
 
@@ -134,10 +160,7 @@ def append_to_memory(fid, user_text, winnie_text):
         f.write(f"Winnie: {winnie_text}\n")
 
 # ---------------- CHATGPT ----------------
-def query_chatgpt(user_text, name, degree, memory_content):
-    """
-    Include name + degree info and conversation history in system messages.
-    """
+def query_chatgpt(user_text, name, degree, memory_content, count):
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "system", "content": f"You are talking to {name or 'Unknown'} who studies {degree or 'Unknown degree'}."}
@@ -145,6 +168,10 @@ def query_chatgpt(user_text, name, degree, memory_content):
     if memory_content.strip():
         messages.append({"role": "system", "content": f"Conversation so far:\n{memory_content}"})
     messages.append({"role": "user", "content": user_text})
+
+    # ✅ Add feedback prompt if count is a multiple of 3 and not 0
+    if count > 0 and count % 3 == 0:
+        messages.append({"role": "system", "content": "Provide feedback on how the user did in the interview. Give a brief comment and a rating out of 10."})
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -205,9 +232,9 @@ if __name__ == "__main__":
                 continue
 
             memory_file = get_memory_file(fid)
-            name, degree = parse_metadata(memory_file)
+            name, degree, count = parse_metadata(memory_file)
 
-            # ✅ New check for empty name or degree
+            # Check for empty name/degree
             if not name or not degree:
                 print(f"⚠️ Cannot start conversation: Name or degree fields are empty for ID {fid}.")
                 continue
@@ -215,8 +242,14 @@ if __name__ == "__main__":
             conv = get_conversation(memory_file)
             print(f"Talking to {name} ({degree})")
 
-            reply = query_chatgpt(user_text, name, degree, conv)
+            reply = query_chatgpt(user_text, name, degree, conv, count)
             append_to_memory(fid, user_text, reply)
+
+            # Increment count after valid conversation
+            count += 1
+            update_count(memory_file, count)
+            print(f"Conversation count for {name}: {count}")
+
             audio_bytes = synthesize_speech(reply)
             play_audio(audio_bytes)
     except KeyboardInterrupt:
