@@ -1,0 +1,1 @@
+The HuskyLens and STT, API, TTS Python codes are designed to run simultaneously on the same computer. The respective Arduino codes are also running simultaneously on two different Arduinos coming from two different ports of the same computer.

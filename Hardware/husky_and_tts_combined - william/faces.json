@@ -1,0 +1,17 @@
+{
+  "1": {
+    "name": "Brian Wang",
+    "age": 64,
+    "race": "Korean"
+  },
+  "2": {
+    "name": "Junha",
+    "age": 18,
+    "race": "Korean"
+  },
+  "3": {
+    "name": "Taiki",
+    "age": 64,
+    "race": "Japanese"
+  }
+}
