@@ -9,7 +9,8 @@ import tempfile
 PORT = "/dev/cu.usbserial-10"  # Change to your Arduino/HuskyLens port
 BAUD = 115200
 DB_PATH = Path("faces.json")   # File mapping IDs -> names
-CHECK_INTERVAL = 0.2           # Seconds between checks
+CHECK_INTERVAL = 0.2           # Seconds between serial reads
+ID_TIMEOUT = 2.0               # How long to wait before unlocking ID
 # ----------------------------------------
 
 # Save presence.json in Downloads/combined
@@ -23,14 +24,14 @@ MEMORY_FILE = Path("memory.txt")
 MEMORIES_DIR = Path("memories")
 MEMORIES_DIR.mkdir(exist_ok=True)
 
-# Load face database
+# Load face database (ID to name mapping)
 if DB_PATH.exists():
     with open(DB_PATH, "r", encoding="utf-8") as f:
         people = json.load(f)
 else:
-    people = {}  # empty dict if no file
+    people = {}  # empty if not found
 
-# Regex patterns to extract face IDs
+# Regex patterns to extract face IDs from serial text
 id_patterns = [
     re.compile(r"^DATA\s*,\s*(\d+)\s*,", re.IGNORECASE),
     re.compile(r"Face\s*ID\s*:\s*(\d+)", re.IGNORECASE),
@@ -100,50 +101,65 @@ def main():
     print(f"Listening on {PORT} @ {BAUD}... (checking every {CHECK_INTERVAL}s)")
     with serial.Serial(PORT, BAUD, timeout=0.1) as ser:
         buffer = ""
+        last_seen_time = None
+        current_id = None
+        current_name = None
 
         while True:
             start_time = time.monotonic()
 
-            # Read all available data for this interval
+            # Read available serial data during the interval
             while time.monotonic() - start_time < CHECK_INTERVAL:
                 data = ser.read(ser.in_waiting or 1)
                 if data:
                     buffer += data.decode("utf-8", errors="replace")
-                time.sleep(0.05)  # small delay to avoid 100% CPU
+                time.sleep(0.05)  # avoid 100% CPU
 
-            # After interval: process buffer once
+            # Process all matches in the buffer
             matches = re.finditer(r"Face\s*ID\s*:\s*(\d+)", buffer, re.IGNORECASE)
+            seen_ids = set()
             processed_up_to = 0
+
             for m in matches:
                 fid = int(m.group(1))
+                seen_ids.add(fid)
                 key = str(fid)
                 name = people.get(key, {}).get("name", f"Unknown (ID {fid})")
-                print(f"Detected: {name} (ID {fid})")
+                processed_up_to = m.end()
 
-                # ---------------- Check current presence ----------------
-                current_presence = load_presence()
-                current_id = current_presence.get("current_id")
-                current_name = current_presence.get("human_name")
+                # FIRST TIME SEEN
+                if current_id is None:
+                    current_id = fid
+                    current_name = name
+                    last_seen_time = time.monotonic()
 
-                if current_id != fid or current_name != name:
-                    # save current memory to the previous ID before switching
-                    if current_id is not None:
-                        save_current_memory_to_person(current_id)
-
-                    # load previous memory of the new person into memory.txt
                     load_person_memory_to_current(fid)
-
-                    # update presence.json
                     payload = {
                         "current_id": fid,
-                        "timestamp_monotonic": time.monotonic(),
+                        "timestamp_monotonic": last_seen_time,
                         "human_name": name
                     }
                     atomic_write_json(PRESENCE_PATH, payload)
+                    print(f"Tracking: {name} (ID {fid})")
 
-                processed_up_to = m.end()
+                elif fid == current_id:
+                    # SAME person still in frame — update last seen
+                    last_seen_time = time.monotonic()
 
-            # Remove processed part from buffer
+                else:
+                    # Another person detected — ignore until current one leaves
+                    print(f"Ignoring {name} (ID {fid}) — already tracking ID {current_id}")
+
+            # If current person hasn't been seen for a while, unlock
+            if current_id is not None and (time.monotonic() - last_seen_time > ID_TIMEOUT):
+                print(f"ID {current_id} timed out — unlocking.")
+                save_current_memory_to_person(current_id)
+                current_id = None
+                current_name = None
+                MEMORY_FILE.write_text("")  # clear memory
+                atomic_write_json(PRESENCE_PATH, {})  # clear presence.json
+
+            # Truncate processed part of buffer
             buffer = buffer[processed_up_to:]
 
 if __name__ == "__main__":
