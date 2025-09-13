@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import time
 import tempfile
+import shutil
 
 # ---------------- CONFIG ----------------
 PORT = "/dev/cu.usbserial-10"  # Arduino/HuskyLens port
@@ -20,6 +21,9 @@ PRESENCE_PATH = PRESENCE_FOLDER / "presence.json"
 
 # Folder to store per-person memory
 MEMORIES_DIR = Path("memories")
+# Clear folder on first run
+if MEMORIES_DIR.exists():
+    shutil.rmtree(MEMORIES_DIR)
 MEMORIES_DIR.mkdir(exist_ok=True)
 
 # Regex patterns to extract face IDs
