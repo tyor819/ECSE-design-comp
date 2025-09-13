@@ -8,9 +8,8 @@ import tempfile
 # ---------------- CONFIG ----------------
 PORT = "/dev/cu.usbserial-10"  # Arduino/HuskyLens port
 BAUD = 115200
-DB_PATH = Path("faces.json")  # File mapping IDs -> names
-CHECK_INTERVAL = 0.1  # Seconds between checks
-WAVING_FLAG_FILE = Path("waving_flag.txt")  # Flag for waving
+CHECK_INTERVAL = 0.1
+WAVING_FLAG_FILE = Path("waving_flag.txt")
 # ----------------------------------------
 
 # Save presence.json in Downloads/combined
@@ -22,13 +21,6 @@ PRESENCE_PATH = PRESENCE_FOLDER / "presence.json"
 # Folder to store per-person memory
 MEMORIES_DIR = Path("memories")
 MEMORIES_DIR.mkdir(exist_ok=True)
-
-# Load face database
-if DB_PATH.exists():
-    with open(DB_PATH, "r", encoding="utf-8") as f:
-        people = json.load(f)
-else:
-    people = {}  # empty dict if no file
 
 # Regex patterns to extract face IDs
 id_patterns = [
@@ -82,20 +74,20 @@ def main():
             matches = re.finditer(r"Face\s*ID\s*:\s*(\d+)", buffer, re.IGNORECASE)
             for m in matches:
                 fid = int(m.group(1))
-                key = str(fid)
-                name = people.get(key, {}).get("name", f"Unknown (ID {fid})")
-                print(f"Detected: {name} (ID {fid})")
+                print(f"Detected: ID {fid}")
 
                 # ---------------- Create ID file if it doesn't exist ----------------
                 person_file = MEMORIES_DIR / f"ID_{fid}.txt"
                 if not person_file.exists():
-                    person_file.touch()
-                    print(f"Created new memory file: {person_file}")
+                    with open(person_file, "w", encoding="utf-8") as f:
+                        f.write("name: \n")
+                        f.write("degree: \n\n")
+                        f.write("--- Conversation Log ---\n")
+                    print(f"Created new memory file: {person_file} (please edit name/degree manually)")
 
                 # Update presence.json
                 payload = {
                     "current_id": fid,
-                    "human_name": name,
                     "timestamp_monotonic": time.monotonic()
                 }
                 atomic_write_json(PRESENCE_PATH, payload)

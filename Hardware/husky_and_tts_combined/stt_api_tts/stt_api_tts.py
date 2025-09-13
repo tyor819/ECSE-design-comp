@@ -60,11 +60,7 @@ def record_audio():
             if key.lower() == 'q':
                 ser.close()
                 return None
-        try:
-            chunk = ser.read(ser.in_waiting or 1)
-        except serial.SerialException as e:
-            print("⚠️ Serial glitch:", e)
-            chunk = b""
+        chunk = ser.read(ser.in_waiting or 1)
         if chunk:
             data += chunk
             last_data_time = time.time()
@@ -101,13 +97,35 @@ def get_current_presence():
         try:
             with open(PRESENCE_FILE, "r") as f:
                 data = json.load(f)
-                return data.get("current_id"), data.get("human_name")
+                return data.get("current_id")
         except Exception as e:
             print("⚠️ Could not read presence.json:", e)
-    return None, None
+    return None
 
 def get_memory_file(fid):
     return MEMORIES_DIR / f"ID_{fid}.txt"
+
+def parse_metadata(mem_file):
+    """Read name and degree from the top of ID_x.txt"""
+    name, degree = None, None
+    if mem_file.exists():
+        with open(mem_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.lower().startswith("name:"):
+                    name = line.split(":", 1)[1].strip()
+                elif line.lower().startswith("degree:"):
+                    degree = line.split(":", 1)[1].strip()
+                if name and degree:
+                    break
+    return name, degree
+
+def get_conversation(mem_file):
+    """Read conversation part (skip metadata)."""
+    if mem_file.exists():
+        lines = mem_file.read_text(encoding="utf-8").splitlines()
+        conv_lines = [l for l in lines if not l.lower().startswith(("name:", "degree:"))]
+        return "\n".join(conv_lines)
+    return ""
 
 def append_to_memory(fid, user_text, winnie_text):
     mem_file = get_memory_file(fid)
@@ -116,14 +134,15 @@ def append_to_memory(fid, user_text, winnie_text):
         f.write(f"Winnie: {winnie_text}\n")
 
 # ---------------- CHATGPT ----------------
-def query_chatgpt(user_text, memory_file):
-    # Read previous conversation
-    memory_content = ""
-    if memory_file.exists():
-        memory_content = memory_file.read_text(encoding="utf-8").strip()
-
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    if memory_content:
+def query_chatgpt(user_text, name, degree, memory_content):
+    """
+    Include name + degree info and conversation history in system messages.
+    """
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": f"You are talking to {name or 'Unknown'} who studies {degree or 'Unknown degree'}."}
+    ]
+    if memory_content.strip():
         messages.append({"role": "system", "content": f"Conversation so far:\n{memory_content}"})
     messages.append({"role": "user", "content": user_text})
 
@@ -180,12 +199,17 @@ if __name__ == "__main__":
             user_text = transcribe_audio(wav_file)
             if not user_text:
                 continue
-            fid, name = get_current_presence()
+            fid = get_current_presence()
             if fid is None:
                 print("No registered person detected; skipping.")
                 continue
+
             memory_file = get_memory_file(fid)
-            reply = query_chatgpt(user_text, memory_file)
+            name, degree = parse_metadata(memory_file)
+            conv = get_conversation(memory_file)
+            print(f"Talking to {name or 'Unknown'} ({degree or 'Unknown degree'})")
+
+            reply = query_chatgpt(user_text, name, degree, conv)
             append_to_memory(fid, user_text, reply)
             audio_bytes = synthesize_speech(reply)
             play_audio(audio_bytes)
