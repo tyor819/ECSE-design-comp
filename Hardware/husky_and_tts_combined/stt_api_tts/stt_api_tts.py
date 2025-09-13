@@ -1,209 +1,173 @@
 import serial
-import time
-import wave
-import speech_recognition as sr
-from gtts import gTTS
-from pydub import AudioSegment
-from openai import OpenAI
-import sys
-import select
-import termios
-import tty
+import re
 from pathlib import Path
 import json
+import time
+import tempfile
+from datetime import datetime
 
 # ---------------- CONFIG ----------------
-MIC_PORT = "/dev/cu.usbserial-1110"   # Arduino mic port
-SPK_PORT = "/dev/cu.usbserial-1110"   # Arduino speaker port
-BAUDRATE = 115200
-SAMPLE_RATE = 8000
-CHANNELS = 1
-SAMPLE_WIDTH = 1
-RECORD_WAV = "recorded.wav"
-TTS_MP3 = "response.mp3"
-TTS_WAV = "response.wav"
-API_KEY_FILE = "apikey_test.txt"     # Keep your API key in this file
-PROMPT_FILE = "prompt_test.txt"      # System prompt for ChatGPT
-MEMORY_FILE = "memory.txt"           # Rolling memory file
-PRESENCE_FILE = Path.home() / "Downloads/combined/presence.json"  # Presence file from HuskyLens
-LAST_SPEAKER_FILE = Path("last_speaker.txt")                      # Track last speaker
+PORT = "/dev/cu.usbserial-10"  # Change to your Arduino/HuskyLens port
+BAUD = 115200
+DB_PATH = Path("faces.json")   # File mapping IDs -> names
+CHECK_INTERVAL = 0.2           # Seconds between checks
+EVENT_JSON = Path("event.json")  # File for button press events
 # ----------------------------------------
 
-# Set stdin to cbreak mode for single-character input without Enter
-old_settings = termios.tcgetattr(sys.stdin)
-tty.setcbreak(sys.stdin.fileno())
+# Save presence.json in Downloads/combined
+DOWNLOADS = Path.home() / "Downloads"
+PRESENCE_FOLDER = DOWNLOADS / "combined"
+PRESENCE_FOLDER.mkdir(parents=True, exist_ok=True)
+PRESENCE_PATH = PRESENCE_FOLDER / "presence.json"
+MEMORY_FILE = Path("memory.txt")
 
-def is_key_pressed():
-    return select.select([sys.stdin], [], [], 0)[0] != []
+# Per-person memory folder
+MEMORIES_DIR = Path("memories")
+MEMORIES_DIR.mkdir(exist_ok=True)
 
-def get_key():
-    return sys.stdin.read(1)
+# Load face database
+if DB_PATH.exists():
+    with open(DB_PATH, "r", encoding="utf-8") as f:
+        people = json.load(f)
+else:
+    people = {}  # empty dict if no file
 
-# Load API key and client
-with open(API_KEY_FILE, "r") as f:
-    api_key = f.read().strip()
-client = OpenAI(api_key=api_key)
+# Regex patterns to extract face IDs and button events
+id_patterns = [
+    re.compile(r"^DATA\s*,\s*(\d+)\s*,", re.IGNORECASE),
+    re.compile(r"Face\s*ID\s*:\s*(\d+)", re.IGNORECASE),
+    re.compile(r"ID\s*=\s*(\d+)", re.IGNORECASE),
+]
+button_pattern = re.compile(r"RIGHT_PRESSED_FACE_DETECTED", re.IGNORECASE)
 
-with open(PROMPT_FILE, "r") as f:
-    SYSTEM_PROMPT = f.read().strip()
+def extract_face_id(text: str):
+    for pat in id_patterns:
+        m = pat.search(text)
+        if m:
+            return int(m.group(1))
+    return None
 
-# ---------------- AUDIO ----------------
-def record_audio():
-    ser = serial.Serial(MIC_PORT, BAUDRATE, timeout=1)
-    time.sleep(2)  # Wait for Arduino reset
-
-    print("Hold button to record... release to stop.")
-    data = b''
-    last_data_time = time.time()
-
-    while True:
-        if is_key_pressed():
-            key = get_key()
-            if key.lower() == 'q':
-                ser.close()
-                return None
-
+def atomic_write_json(path: Path, obj: dict):
+    """Write JSON atomically to avoid partial writes."""
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name, suffix=".tmp")
+    try:
+        with open(fd, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False, indent=4)
+        Path(tmp).replace(path)
+    finally:
         try:
-            chunk = ser.read(ser.in_waiting or 1)
-        except serial.SerialException as e:
-            print("⚠️ Serial glitch, continuing:", e)
-            chunk = b""
+            Path(tmp).unlink()
+        except FileNotFoundError:
+            pass
 
-        if chunk:
-            data += chunk
-            last_data_time = time.time()
-        else:
-            if time.time() - last_data_time > 1 and len(data) > 0:
-                break
+def write_event_to_json(event_type: str):
+    """Write button press event to event.json."""
+    event_data = {
+        'event': event_type,
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    atomic_write_json(EVENT_JSON, event_data)
+    print(f"Event written to {EVENT_JSON}: {event_data}")
 
-    ser.close()
+def clear_memory():
+    """Clear memory.txt."""
+    try:
+        MEMORY_FILE.write_text("")  # blank file
+        print("memory.txt cleared.")
+    except Exception as e:
+        print(f"Could not clear memory.txt: {e}")
 
-    with wave.open(RECORD_WAV, 'wb') as wf:
-        wf.setnchannels(CHANNELS)
-        wf.setsampwidth(SAMPLE_WIDTH)
-        wf.setframerate(SAMPLE_RATE)
-        wf.writeframes(data)
-
-    print(f"Saved recording to {RECORD_WAV}")
-    return RECORD_WAV
-
-def transcribe_audio(wav_file):
-    recognizer = sr.Recognizer()
-    with sr.AudioFile(wav_file) as source:
-        audio_data = recognizer.record(source)
+def load_presence():
+    """Load current presence.json content if it exists."""
+    if PRESENCE_PATH.exists():
         try:
-            text = recognizer.recognize_google(audio_data, language="en-US")
-            print("You said:", text)
-            return text
-        except sr.UnknownValueError:
-            print("Could not understand audio")
-            return None
-        except sr.RequestError as e:
-            print("STT request error:", e)
-            return None
+            with open(PRESENCE_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
 
-# ---------------- CHATGPT ----------------
-def query_chatgpt(user_text):
-    # Load memory
-    with open(MEMORY_FILE, "r") as f:
-        memory_content = f.read().strip()
+def save_current_memory_to_person(fid: int):
+    """Append the current memory.txt content into that person's memory file."""
+    mem_text = MEMORY_FILE.read_text(encoding="utf-8") if MEMORY_FILE.exists() else ""
+    if mem_text.strip():
+        person_file = MEMORIES_DIR / f"ID_{fid}.txt"
+        with open(person_file, "a", encoding="utf-8") as f:
+            f.write(mem_text + "\n")
+        print(f"Saved memory.txt contents to {person_file}")
 
-    # Load presence info
-    presence_name = None
-    if PRESENCE_FILE.exists():
-        try:
-            with open(PRESENCE_FILE, "r") as f:
-                presence_data = json.load(f)
-                presence_name = presence_data.get("human_name")
-        except Exception as e:
-            print("⚠️ Could not read presence.json:", e)
-
-    # ---------------- Clear memory if speaker changed ----------------
-    if presence_name:
-        last_speaker_name = None
-        if LAST_SPEAKER_FILE.exists():
-            with open(LAST_SPEAKER_FILE, "r") as f:
-                last_speaker_name = f.read().strip()
-        if last_speaker_name != presence_name:
-            open(MEMORY_FILE, "w").close()  # Clear memory
-            with open(LAST_SPEAKER_FILE, "w") as f:
-                f.write(presence_name)
-            print(f"🧹 Memory cleared. New speaker: {presence_name}")
-
-    # Build conversation context
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    if memory_content:
-        messages.append({"role": "system", "content": f"Conversation so far:\n{memory_content}"})
-    if presence_name:
-        messages.append({"role": "system", "content": f"The person in front of you is {presence_name}. Address them by name if appropriate."})
-    messages.append({"role": "user", "content": user_text})
-
-    # Query model
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages,
-    )
-    reply = response.choices[0].message.content.strip()
-    print("ChatGPT says:", reply)
-
-    # Append new exchange to memory
-    with open(MEMORY_FILE, "a") as f:
-        f.write(f"User: {user_text}\n")
-        f.write(f"Winnie: {reply}\n")
-
-    return reply
-
-# ---------------- TTS ----------------
-def synthesize_speech(text):
-    tts = gTTS(text)
-    tts.save(TTS_MP3)
-
-    audio = AudioSegment.from_file(TTS_MP3, format="mp3")
-    audio = audio.set_frame_rate(8000).set_channels(1).set_sample_width(1)
-    audio.export(TTS_WAV, format="wav")
-
-    with open(TTS_WAV, "rb") as f:
-        f.seek(44)  # skip WAV header
-        data = f.read()
-    return data
-
-def play_audio(raw_bytes):
-    ser = serial.Serial(SPK_PORT, BAUDRATE, timeout=1)
-    time.sleep(2)
-    print(f"Sending {len(raw_bytes)} bytes to speaker...")
-    for i in range(0, len(raw_bytes), 256):
-        if is_key_pressed():
-            key = get_key()
-            if key.lower() == 'q':
-                ser.close()
-                return
-        ser.write(raw_bytes[i:i+256])
-        time.sleep(0.01)
-    ser.close()
-    print("Playback finished.")
+def load_person_memory_to_current(fid: int):
+    """Load that person's stored memory into memory.txt."""
+    person_file = MEMORIES_DIR / f"ID_{fid}.txt"
+    if person_file.exists():
+        past = person_file.read_text(encoding="utf-8")
+        MEMORY_FILE.write_text(past)
+        print(f"Loaded previous memory for ID {fid} into memory.txt")
+    else:
+        MEMORY_FILE.write_text("")  # start fresh
+        print(f"No previous memory for ID {fid}, starting fresh.")
 
 # ---------------- MAIN LOOP ----------------
-if __name__ == "__main__":
-    open(MEMORY_FILE, "w").close()  # Clear memory at start
-    try:
-        while True:
-            if is_key_pressed():
-                key = get_key()
-                if key.lower() == 'q':
-                    break
+def main():
+    print(f"Listening on {PORT} @ {BAUD}... (checking every {CHECK_INTERVAL}s)")
+    with serial.Serial(PORT, BAUD, timeout=0.1) as ser:
+        buffer = ""
 
-            print("\n--- New Conversation ---")
-            wav_file = record_audio()
-            if wav_file is None:
-                break
-            user_text = transcribe_audio(wav_file)
-            if not user_text:
-                continue
-            reply = query_chatgpt(user_text)
-            audio_bytes = synthesize_speech(reply)
-            play_audio(audio_bytes)
+        while True:
+            start_time = time.monotonic()
+
+            # Read all available data for this interval
+            while time.monotonic() - start_time < CHECK_INTERVAL:
+                data = ser.read(ser.in_waiting or 1)
+                if data:
+                    buffer += data.decode("utf-8", errors="replace")
+                time.sleep(0.05)  # small delay to avoid 100% CPU
+
+            # After interval: process buffer once
+            processed_up_to = 0
+            # Check for button press event
+            button_match = button_pattern.search(buffer)
+            if button_match:
+                write_event_to_json("RightButtonPressedFaceDetected")
+                print("Right button pressed and face detected! Written to event.json.")
+                processed_up_to = max(processed_up_to, button_match.end())
+
+            # Check for face ID matches
+            matches = re.finditer(r"Face\s*ID\s*:\s*(\d+)", buffer, re.IGNORECASE)
+            for m in matches:
+                fid = int(m.group(1))
+                key = str(fid)
+                name = people.get(key, {}).get("name", f"Unknown (ID {fid})")
+                print(f"Detected: {name} (ID {fid})")
+
+                # ---------------- Check current presence ----------------
+                current_presence = load_presence()
+                current_id = current_presence.get("current_id")
+                current_name = current_presence.get("human_name")
+
+                if current_id != fid or current_name != name:
+                    # save current memory to the previous ID before switching
+                    if current_id is not None:
+                        save_current_memory_to_person(current_id)
+
+                    # load previous memory of the new person into memory.txt
+                    load_person_memory_to_current(fid)
+
+                    # update presence.json
+                    payload = {
+                        "current_id": fid,
+                        "timestamp_monotonic": time.monotonic(),
+                        "human_name": name
+                    }
+                    atomic_write_json(PRESENCE_PATH, payload)
+
+                processed_up_to = max(processed_up_to, m.end())
+
+            # Remove processed part from buffer
+            buffer = buffer[processed_up_to:]
+
+if __name__ == "__main__":
+    try:
+        main()
     except KeyboardInterrupt:
-        print("\n🛑 Interrupted by user")
-    finally:
-        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-        print("Terminal restored, exiting cleanly.")
+        print("\nExiting.")

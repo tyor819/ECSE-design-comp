@@ -4,12 +4,14 @@ from pathlib import Path
 import json
 import time
 import tempfile
+from datetime import datetime
 
 # ---------------- CONFIG ----------------
 PORT = "/dev/cu.usbserial-10"  # Change to your Arduino/HuskyLens port
 BAUD = 115200
 DB_PATH = Path("faces.json")   # File mapping IDs -> names
 CHECK_INTERVAL = 0.2           # Seconds between checks
+EVENT_JSON = Path("event.json")  # File for button press events
 # ----------------------------------------
 
 # Save presence.json in Downloads/combined
@@ -30,12 +32,13 @@ if DB_PATH.exists():
 else:
     people = {}  # empty dict if no file
 
-# Regex patterns to extract face IDs
+# Regex patterns to extract face IDs and button events
 id_patterns = [
     re.compile(r"^DATA\s*,\s*(\d+)\s*,", re.IGNORECASE),
     re.compile(r"Face\s*ID\s*:\s*(\d+)", re.IGNORECASE),
     re.compile(r"ID\s*=\s*(\d+)", re.IGNORECASE),
 ]
+button_pattern = re.compile(r"RIGHT_PRESSED_FACE_DETECTED", re.IGNORECASE)
 
 def extract_face_id(text: str):
     for pat in id_patterns:
@@ -49,13 +52,22 @@ def atomic_write_json(path: Path, obj: dict):
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name, suffix=".tmp")
     try:
         with open(fd, "w", encoding="utf-8") as f:
-            json.dump(obj, f, ensure_ascii=False)
+            json.dump(obj, f, ensure_ascii=False, indent=4)
         Path(tmp).replace(path)
     finally:
         try:
             Path(tmp).unlink()
         except FileNotFoundError:
             pass
+
+def write_event_to_json(event_type: str):
+    """Write button press event to event.json."""
+    event_data = {
+        'event': event_type,
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    }
+    atomic_write_json(EVENT_JSON, event_data)
+    print(f"Event written to {EVENT_JSON}: {event_data}")
 
 def clear_memory():
     """Clear memory.txt."""
@@ -112,8 +124,16 @@ def main():
                 time.sleep(0.05)  # small delay to avoid 100% CPU
 
             # After interval: process buffer once
-            matches = re.finditer(r"Face\s*ID\s*:\s*(\d+)", buffer, re.IGNORECASE)
             processed_up_to = 0
+            # Check for button press event
+            button_match = button_pattern.search(buffer)
+            if button_match:
+                write_event_to_json("RightButtonPressedFaceDetected")
+                print("Right button pressed and face detected! Written to event.json.")
+                processed_up_to = max(processed_up_to, button_match.end())
+
+            # Check for face ID matches
+            matches = re.finditer(r"Face\s*ID\s*:\s*(\d+)", buffer, re.IGNORECASE)
             for m in matches:
                 fid = int(m.group(1))
                 key = str(fid)
@@ -141,7 +161,7 @@ def main():
                     }
                     atomic_write_json(PRESENCE_PATH, payload)
 
-                processed_up_to = m.end()
+                processed_up_to = max(processed_up_to, m.end())
 
             # Remove processed part from buffer
             buffer = buffer[processed_up_to:]
